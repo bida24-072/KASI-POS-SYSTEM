@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Kasi POS</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="page-layout">
+        <div class="page-container">
+
+            <div class="page-title" style="display:flex; justify-content:space-between; align-items:end; flex-wrap:wrap; gap:20px;">
+                <div>
+                    <h1>Sales <em>Dashboard</em></h1>
+                    <p>Real-time view of today's transactions, top products, and revenue trends.</p>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <a href="index.html" class="btn btn-outline"><i class="fas fa-cash-register"></i> Back to POS</a>
+                    <button class="btn" onclick="exportCSV()"><i class="fas fa-download"></i> Export CSV</button>
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card amber">
+                    <span class="label">Today's Revenue</span>
+                    <div class="value" id="stat-revenue">P0</div>
+                </div>
+                <div class="stat-card blue">
+                    <span class="label">Transactions Today</span>
+                    <div class="value" id="stat-transactions">0</div>
+                </div>
+                <div class="stat-card green">
+                    <span class="label">Items Sold Today</span>
+                    <div class="value" id="stat-items">0</div>
+                </div>
+                <div class="stat-card">
+                    <span class="label">All-Time Revenue</span>
+                    <div class="value" id="stat-alltime">P0</div>
+                </div>
+            </div>
+
+            <!-- Top products -->
+            <div class="table-wrap" style="margin-bottom: 24px;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Top Selling Products</th>
+                            <th style="text-align:right;">Units Sold</th>
+                            <th style="text-align:right;">Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody id="top-products-body"></tbody>
+                </table>
+            </div>
+
+            <!-- Recent sales -->
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Receipt #</th>
+                            <th>Time</th>
+                            <th>Items</th>
+                            <th style="text-align:right;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-sales-body"></tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+    <script>
+        function renderDashboard() {
+            const today = new Date().toISOString().split('T')[0];
+            const todaysSales = store.sales.filter(s => s.timestamp.split('T')[0] === today);
+
+            const revenueToday = todaysSales.reduce((s, sale) => s + sale.total, 0);
+            const transactionsToday = todaysSales.length;
+            const itemsToday = todaysSales.reduce((s, sale) => s + sale.items.reduce((t, i) => t + i.qty, 0), 0);
+            const allTime = store.sales.reduce((s, sale) => s + sale.total, 0);
+
+            document.getElementById("stat-revenue").textContent = `P${revenueToday.toFixed(0)}`;
+            document.getElementById("stat-transactions").textContent = transactionsToday;
+            document.getElementById("stat-items").textContent = itemsToday;
+            document.getElementById("stat-alltime").textContent = `P${allTime.toFixed(0)}`;
+
+            // Top products
+            const productMap = {};
+            store.sales.forEach(sale => {
+                sale.items.forEach(item => {
+                    if (!productMap[item.id]) productMap[item.id] = { name: item.name, emoji: item.emoji, qty: 0, revenue: 0 };
+                    productMap[item.id].qty += item.qty;
+                    productMap[item.id].revenue += item.qty * item.price;
+                });
+            });
+            const topProducts = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 8);
+            const topBody = document.getElementById("top-products-body");
+            if (topProducts.length === 0) {
+                topBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--muted); padding:40px;">No sales yet — complete a sale to see data here</td></tr>`;
+            } else {
+                topBody.innerHTML = topProducts.map(p => `
+                    <tr>
+                        <td><span class="table-emoji">${p.emoji}</span> <strong>${p.name}</strong></td>
+                        <td style="text-align:right; font-family:var(--mono);">${p.qty}</td>
+                        <td style="text-align:right; font-family:var(--mono); color:var(--amber);">P${p.revenue.toFixed(2)}</td>
+                    </tr>
+                `).join('');
+            }
+
+            // Recent sales
+            const recent = [...store.sales].reverse().slice(0, 10);
+            const recentBody = document.getElementById("recent-sales-body");
+            if (recent.length === 0) {
+                recentBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:40px;">No transactions yet</td></tr>`;
+            } else {
+                recentBody.innerHTML = recent.map(s => {
+                    const itemsCount = s.items.reduce((t, i) => t + i.qty, 0);
+                    const time = new Date(s.timestamp).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+                    return `
+                        <tr>
+                            <td style="font-family:var(--mono); color:var(--amber);">${s.receiptNum}</td>
+                            <td style="color:var(--muted); font-size:0.85rem;">${time}</td>
+                            <td style="font-family:var(--mono);">${itemsCount}</td>
+                            <td style="text-align:right; font-family:var(--mono); font-weight:700;">P${s.total.toFixed(2)}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        function exportCSV() {
+            if (store.sales.length === 0) {
+                showToast("No sales to export yet", "error");
+                return;
+            }
+            const rows = [["Receipt #", "Date", "Time", "Items", "Subtotal", "VAT", "Total"]];
+            store.sales.forEach(s => {
+                const d = new Date(s.timestamp);
+                rows.push([
+                    s.receiptNum,
+                    d.toLocaleDateString('en-GB'),
+                    d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+                    s.items.map(i => `${i.qty}x ${i.name}`).join('; '),
+                    s.subtotal.toFixed(2),
+                    s.vat.toFixed(2),
+                    s.total.toFixed(2)
+                ]);
+            });
+            const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `kasi-sales-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("CSV downloaded", "success");
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            renderDashboard();
+        });
+    </script>
+</body>
+</html>
